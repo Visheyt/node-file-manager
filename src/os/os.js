@@ -1,8 +1,9 @@
 import os from "node:os";
+import { normalizeArg } from "../helpers/helpers.js";
 
 export class Os {
   initCommand(args) {
-    const command = args[0].slice(2).trim();
+    const command = normalizeArg(args);
 
     this[command]();
   }
