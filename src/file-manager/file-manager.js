@@ -1,11 +1,12 @@
 import {
   ERROR_MESSAGE,
+  isDirectoryExist,
   isFileExist,
-  normalizeArg,
 } from "../helpers/helpers.js";
 import { MessagePrinter } from "../message-printer/message-printer.js";
 import { Os } from "../os/os.js";
 import fs from "node:fs/promises";
+import { createReadStream, createWriteStream } from "node:fs";
 import path from "node:path";
 
 export class FileManager {
@@ -65,6 +66,61 @@ export class FileManager {
     const target = this.parsePath(args[0]);
 
     await fs.mkdir(target);
+  }
+
+  async cp(args) {
+    const source = this.parsePath(args[0]);
+    const target = this.parsePath(args[1]);
+
+    if (args.length < 2) {
+      throw new Error(ERROR_MESSAGE);
+    }
+    return new Promise(async (res, rej) => {
+      if (!(await isFileExist(source)) || (await isFileExist(target))) {
+        rej(ERROR_MESSAGE);
+        return;
+      }
+
+      const readStream = createReadStream(source);
+      const writeStream = createWriteStream(target);
+
+      const pipe = readStream.pipe(writeStream);
+
+      pipe.on("finish", () => res());
+      pipe.on("error", () => rej);
+    });
+  }
+
+  async mv(args) {
+    try {
+      const fileName = args[0];
+      const source = this.parsePath(args[0]);
+      const target = this.parsePath(args[1]);
+
+      if (!(await isFileExist(source))) {
+        throw new Error(ERROR_MESSAGE);
+      }
+
+      if (!(await isDirectoryExist(targetDir))) {
+        throw new Error(ERROR_MESSAGE);
+      }
+
+      const readStream = createReadStream(source);
+
+      const writeStream = createWriteStream(path.join(target, fileName));
+
+      await new Promise((res, rej) => {
+        readStream.pipe(writeStream);
+
+        writeStream.on("finish", res);
+        writeStream.on("error", rej);
+        readStream.on("error", rej);
+      });
+
+      await this.rm([fileName]);
+    } catch {
+      throw new Error(ERROR_MESSAGE);
+    }
   }
 
   async rm(args) {

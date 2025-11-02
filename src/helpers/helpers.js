@@ -15,4 +15,14 @@ export const isFileExist = async (path) => {
   }
 };
 
+export const isDirectoryExist = async (path) => {
+  try {
+    await fs.access(path);
+
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 export const ERROR_MESSAGE = "operation failed";
