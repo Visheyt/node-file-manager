@@ -24,5 +24,3 @@ export const isDirectoryExist = async (path) => {
     return false;
   }
 };
-
-export const ERROR_MESSAGE = "operation failed";
