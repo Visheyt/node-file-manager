@@ -9,6 +9,12 @@ import fs from "node:fs/promises";
 import { createReadStream, createWriteStream } from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import crypto from "node:crypto";
+import { pipeline as pipelineCb } from "node:stream";
+import { promisify } from "node:util";
+import zlib from "node:zlib";
+
+const pipeline = promisify(pipelineCb);
 
 export class FileManager {
   constructor(userName) {
@@ -28,7 +34,15 @@ export class FileManager {
         process.exit(0);
       }
 
-      await this[command](args);
+      try {
+        if (typeof this[command] !== "function") {
+          console.log("Invalid input");
+        } else {
+          await this[command](args);
+        }
+      } catch (e) {
+        console.log(e?.message || ERROR_MESSAGE);
+      }
 
       this.messagePrinter.printLocation();
     });
@@ -48,34 +62,70 @@ export class FileManager {
   }
 
   parsePath(str) {
-    return path.join(this.messagePrinter.location, str);
+    if (!str) return this.messagePrinter.location;
+    return path.resolve(this.messagePrinter.location, str);
   }
 
   up() {
     const location = this.messagePrinter.location;
-    if (location !== os.homedir()) {
-      this.messagePrinter.setLocation(path.dirname(location));
+    const home = os.homedir();
+
+    if (location !== home) {
+      const newLocation = path.dirname(location);
+
+      this.messagePrinter.setLocation(newLocation);
     }
   }
 
   async cd(args) {
+    if (!args || args.length === 0) throw new Error(ERROR_MESSAGE);
+
     const newLocation = this.parsePath(args[0]);
 
     if (!(await isDirectoryExist(newLocation))) {
       throw new Error(ERROR_MESSAGE);
     }
 
-    this.messagePrinter.location = newLocation;
+    this.messagePrinter.setLocation(newLocation);
   }
 
   os(args) {
     this.osModule.initCommand(args);
   }
 
-  async add(args) {
+  async ls() {
+    const dir = this.messagePrinter.location;
+    const entries = await fs.readdir(dir, { withFileTypes: true });
+
+    const items = entries
+      .map((entry) => ({
+        Name: entry.name,
+        Type: entry.isDirectory() ? "Directory" : "File",
+      }))
+      .sort((a, b) => {
+        if (a.Type === b.Type) return a.Name.localeCompare(b.Name);
+        return a.Type === "Directory" ? -1 : 1;
+      });
+
+    console.table(items);
+  }
+
+  async cat(args) {
     const target = this.parsePath(args[0]);
 
-    console.log(target);
+    if (!(await isFileExist(target))) throw new Error(ERROR_MESSAGE);
+
+    const readStream = createReadStream(target, { encoding: "utf8" });
+
+    await new Promise((res, rej) => {
+      readStream.on("data", (chunk) => process.stdout.write(chunk));
+      readStream.on("end", res);
+      readStream.on("error", rej);
+    });
+  }
+
+  async add(args) {
+    const target = this.parsePath(args[0]);
 
     await fs.writeFile(target, "");
   }
@@ -87,58 +137,42 @@ export class FileManager {
   }
 
   async cp(args) {
+    if (args.length < 2) throw new Error(ERROR_MESSAGE);
+
     const source = this.parsePath(args[0]);
-    const target = this.parsePath(args[1]);
+    const targetDir = this.parsePath(args[1]);
 
-    if (args.length < 2) {
-      throw new Error(ERROR_MESSAGE);
-    }
-    return new Promise(async (res, rej) => {
-      if (!(await isFileExist(source)) || (await isFileExist(target))) {
-        rej(ERROR_MESSAGE);
-        return;
-      }
+    if (!(await isFileExist(source))) throw new Error(ERROR_MESSAGE);
+    if (!(await isDirectoryExist(targetDir))) throw new Error(ERROR_MESSAGE);
 
-      const readStream = createReadStream(source);
-      const writeStream = createWriteStream(target);
+    const targetPath = path.join(targetDir, path.basename(source));
 
-      const pipe = readStream.pipe(writeStream);
+    const readStream = createReadStream(source);
+    const writeStream = createWriteStream(targetPath);
 
-      pipe.on("finish", () => res());
-      pipe.on("error", () => rej);
+    await new Promise((res, rej) => {
+      readStream.pipe(writeStream);
+      writeStream.on("finish", res);
+      writeStream.on("error", rej);
+      readStream.on("error", rej);
     });
   }
 
   async mv(args) {
-    try {
-      const fileName = args[0];
-      const source = this.parsePath(args[0]);
-      const target = this.parsePath(args[1]);
+    if (args.length < 2) throw new Error(ERROR_MESSAGE);
 
-      if (!(await isFileExist(source))) {
-        throw new Error(ERROR_MESSAGE);
-      }
+    const source = this.parsePath(args[0]);
+    const targetDir = this.parsePath(args[1]);
 
-      if (!(await isDirectoryExist(targetDir))) {
-        throw new Error(ERROR_MESSAGE);
-      }
+    if (!(await isFileExist(source))) throw new Error(ERROR_MESSAGE);
+    if (!(await isDirectoryExist(targetDir))) throw new Error(ERROR_MESSAGE);
 
-      const readStream = createReadStream(source);
+    const targetPath = path.join(targetDir, path.basename(source));
 
-      const writeStream = createWriteStream(path.join(target, fileName));
+    // use pipeline to stream + then unlink
+    await pipeline(createReadStream(source), createWriteStream(targetPath));
 
-      await new Promise((res, rej) => {
-        readStream.pipe(writeStream);
-
-        writeStream.on("finish", res);
-        writeStream.on("error", rej);
-        readStream.on("error", rej);
-      });
-
-      await this.rm([fileName]);
-    } catch {
-      throw new Error(ERROR_MESSAGE);
-    }
+    await fs.unlink(source);
   }
 
   async rm(args) {
@@ -152,19 +186,74 @@ export class FileManager {
   }
 
   async rn(args) {
-    if (args.length < 2) {
-      throw new Error(ERROR_MESSAGE);
-    }
+    if (args.length < 2) throw new Error(ERROR_MESSAGE);
 
     const source = this.parsePath(args[0]);
-
-    const target = this.parsePath(args[1]);
-
-    console.log(source, target);
+    const targetName = args[1]; // new filename (not full path)
+    const target = path.join(path.dirname(source), targetName);
 
     if (!(await isFileExist(source)) || (await isFileExist(target))) {
       throw new Error(ERROR_MESSAGE);
     }
+
     await fs.rename(source, target);
+  }
+
+  async hash(args) {
+    const target = this.parsePath(args[0]);
+
+    if (!(await isFileExist(target))) throw new Error(ERROR_MESSAGE);
+
+    const hash = crypto.createHash("sha256");
+
+    await pipeline(createReadStream(target), hash);
+
+    const hash2 = crypto.createHash("sha256");
+    await new Promise((res, rej) => {
+      const rs = createReadStream(target);
+      rs.on("data", (chunk) => hash2.update(chunk));
+      rs.on("end", () => res());
+      rs.on("error", (e) => rej(e));
+    });
+
+    console.log(hash2.digest("hex"));
+  }
+
+  async compress(args) {
+    if (args.length < 2) throw new Error(ERROR_MESSAGE);
+
+    const source = this.parsePath(args[0]);
+    const destination = this.parsePath(args[1]);
+
+    if (!(await isFileExist(source))) throw new Error(ERROR_MESSAGE);
+
+    const brotli = zlib.createBrotliCompress();
+
+    await pipeline(
+      createReadStream(source),
+      brotli,
+      createWriteStream(destination)
+    );
+  }
+
+  async decompress(args) {
+    if (args.length < 2) throw new Error(ERROR_MESSAGE);
+
+    const source = this.parsePath(args[0]);
+    const destination = this.parsePath(args[1]);
+
+    if (!(await isFileExist(source))) throw new Error(ERROR_MESSAGE);
+
+    const brotli = zlib.createBrotliDecompress();
+
+    await pipeline(
+      createReadStream(source),
+      brotli,
+      createWriteStream(destination)
+    );
+  }
+
+  sayGoodBye() {
+    this.messagePrinter.sayGoodBye();
   }
 }
