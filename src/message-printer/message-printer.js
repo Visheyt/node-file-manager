@@ -20,4 +20,8 @@ export class MessagePrinter {
   printLocation() {
     console.log(`You are currently in ${this.location}`);
   }
+
+  setLocation(newLoc) {
+    this.location = newLoc;
+  }
 }

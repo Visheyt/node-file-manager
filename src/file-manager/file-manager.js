@@ -8,6 +8,7 @@ import { Os } from "../os/os.js";
 import fs from "node:fs/promises";
 import { createReadStream, createWriteStream } from "node:fs";
 import path from "node:path";
+import os from "node:os";
 
 export class FileManager {
   constructor(userName) {
@@ -48,6 +49,23 @@ export class FileManager {
 
   parsePath(str) {
     return path.join(this.messagePrinter.location, str);
+  }
+
+  up() {
+    const location = this.messagePrinter.location;
+    if (location !== os.homedir()) {
+      this.messagePrinter.setLocation(path.dirname(location));
+    }
+  }
+
+  async cd(args) {
+    const newLocation = this.parsePath(args[0]);
+
+    if (!(await isDirectoryExist(newLocation))) {
+      throw new Error(ERROR_MESSAGE);
+    }
+
+    this.messagePrinter.location = newLocation;
   }
 
   os(args) {
