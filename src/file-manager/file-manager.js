@@ -1,6 +1,10 @@
+import { Os } from "../os/os.js";
+
 export class FileManager {
   constructor(userName) {
     this.userName = userName;
+
+    this.osModule = new Os();
 
     this.sayWelcome();
 
@@ -11,6 +15,8 @@ export class FileManager {
         this.sayGoodBye();
         process.exit(0);
       }
+
+      this[command](args);
     });
 
     process.on("SIGINT", () => this.sayGoodBye());
@@ -36,5 +42,9 @@ export class FileManager {
       `\nThank you for using File Manager, ${this.userName}, goodbye!`
     );
     process.exit(0);
+  }
+
+  os(args) {
+    this.osModule.initCommand(args);
   }
 }
