@@ -5,15 +5,26 @@ export class FileManager {
     this.sayWelcome();
 
     process.stdin.on("data", (chunk) => {
-      const data = chunk.toString().trim();
+      const { command, args } = this.parseChunk(chunk);
 
-      if (data === "exit") {
+      if (command === ".exit") {
         this.sayGoodBye();
         process.exit(0);
       }
     });
 
     process.on("SIGINT", () => this.sayGoodBye());
+  }
+
+  parseChunk(chunk) {
+    const data = chunk.toString().trim().split(" ");
+
+    const [command, ...args] = data;
+
+    return {
+      command: command,
+      args: args,
+    };
   }
 
   sayWelcome() {
