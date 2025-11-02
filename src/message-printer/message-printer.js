@@ -16,4 +16,8 @@ export class MessagePrinter {
     );
     process.exit(0);
   }
+
+  printLocation() {
+    console.log(`You are currently in ${this.location}`);
+  }
 }

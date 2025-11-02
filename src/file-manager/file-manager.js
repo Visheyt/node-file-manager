@@ -9,6 +9,8 @@ export class FileManager {
 
     this.messagePrinter.sayWelcome();
 
+    this.messagePrinter.printLocation();
+
     process.stdin.on("data", (chunk) => {
       const { command, args } = this.parseChunk(chunk);
 
@@ -18,6 +20,8 @@ export class FileManager {
       }
 
       this[command](args);
+
+      this.messagePrinter.printLocation();
     });
 
     process.on("SIGINT", () => this.messagePrinter.sayGoodBye());
